@@ -1,0 +1,69 @@
+#!/bin/bash
+#PBS -N fyp_phase1
+#PBS -j oe
+
+set -euo pipefail
+cd "${PBS_O_WORKDIR:?Submit from the repository root}"
+repo="$PWD"
+source "${ATLAS_ENV_FILE:-$repo/atlas/environment.sh}"
+
+stage="${STAGE:?Pass STAGE through qsub -v}"
+run="${RUN_DIR:?Pass RUN_DIR through qsub -v}"
+data="${DATA_ROOT:?Pass DATA_ROOT through qsub -v}"
+epochs="${END_EPOCH:-30}"
+device="${DEVICE:-cpu}"
+workers="${WORKERS:-2}"
+encoder="${ENCODER_CHECKPOINT:-$run/shared_encoder.pt}"
+mkdir -p "$run"
+exec > >(tee "$run/${stage}.${PBS_JOBID}.log") 2>&1
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
+export MKL_NUM_THREADS="${MKL_NUM_THREADS:-8}"
+export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-8}"
+
+echo "Job $PBS_JOBID on $(hostname) | stage=$stage | device=$device"
+date
+python scripts/restore_manifest.py
+python - "$device" <<'PY'
+import sys
+import numpy
+import scipy
+import torch
+
+print("Python", sys.version.split()[0], "PyTorch", torch.__version__,
+      "NumPy", numpy.__version__, "SciPy", scipy.__version__, flush=True)
+if sys.argv[1] == "cuda" and not torch.cuda.is_available():
+    raise SystemExit("CUDA is unavailable in this job allocation.")
+PY
+
+common=(--data "$data" --manifest "$repo/data/p3-s1.json"
+        --device "$device" --workers "$workers")
+resume=()
+if [[ -n "${RESUME_CHECKPOINT:-}" ]]; then
+    resume=(--resume "$RESUME_CHECKPOINT")
+fi
+
+case "$stage" in
+    pretrain)
+        python -u phase1/pretrain_encoder.py "${common[@]}" "${resume[@]}" \
+            --output "$run/shared_encoder.pt" --epochs "$epochs" --batch-size 8
+        ;;
+    baseline|grc)
+        python -u "phase1/train_${stage}.py" "${common[@]}" "${resume[@]}" \
+            --encoder-checkpoint "$encoder" --output "$run/$stage" \
+            --epochs "$epochs" --batch-size 16
+        ;;
+    test_baseline|test_grc)
+        model="${stage#test_}"
+        checkpoint="${POSE_CHECKPOINT:-$run/$model/best.pt}"
+        python -u "phase1/train_${model}.py" "${common[@]}" \
+            --checkpoint "$checkpoint" --output "$run/$stage" \
+            --split test --export --batch-size 16
+        ;;
+    *)
+        echo "Unknown stage: $stage" >&2
+        exit 2
+        ;;
+esac
+
+echo "Completed $stage. Results: $run"
+date

@@ -5,6 +5,11 @@ pose estimation from MM-Fi Wi-Fi CSI. Phase 1 compares the full DT-Pose
 encoder/pose-decoder architecture with the same encoder followed by a CSI-adapted
 GRC and ReLU pose head. Phase 2 diffusion refinement is proposed work.
 
+## Atlas batch jobs
+
+This branch includes PBS submission, continuation and testing for NUS Atlas.
+Follow [atlas/README.md](atlas/README.md) for the complete workflow.
+
 ## Setup
 
 Use Python 3.11 or 3.12. Download this repository or clone it, then run these
