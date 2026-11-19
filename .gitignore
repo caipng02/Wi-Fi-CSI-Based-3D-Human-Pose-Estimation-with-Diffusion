@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+.venv-*/
+.DS_Store
+runs/
+data/MMFi_Dataset/
+data/p3-s1.json
+*.pt
+*.npz
+*.npy
+*.mat
+*.zip
+*.log

@@ -1,15 +1,70 @@
-# Wi-Fi-CSI-Based-3D-Human-Pose-Estimation-with-Diffusion
+# Wi-Fi CSI 3D Human Pose Estimation with Diffusion
 
-## Project overview
+This NUS final-year project investigates conditional diffusion for 17-joint 3D
+pose estimation from MM-Fi Wi-Fi CSI. Phase 1 compares the full DT-Pose
+encoder/pose-decoder architecture with the same encoder followed by a CSI-adapted
+GRC and ReLU pose head. Phase 2 diffusion refinement is proposed work.
 
-This final-year project investigates whether conditional diffusion can improve **3D human pose estimation from Wi-Fi channel state information (CSI)**. It adapts [mmDiff](https://arxiv.org/abs/2403.16198), originally designed for mmWave radar, to Wi-Fi CSI amplitude data from the [MM-Fi dataset](https://arxiv.org/abs/2305.10345). The system takes a short window of observed CSI and estimates a 17-joint 3D skeleton at each corresponding timestamp.
+## Setup
 
-## Proposed pipeline
+Use Python 3.11 or 3.12. Download this repository or clone it, then run these
+commands from its root directory.
 
-1. **Build a CSI window.** Group consecutive CSI blocks from the same subject–action recording. Each block corresponds to one pose timestamp. The initial design uses five blocks per window.
-2. **Estimate coarse poses.** The [DT-Pose](https://arxiv.org/abs/2501.09411) encoder extracts feature tokens from each CSI block. An adapted Global Radar Context (GRC) module converts those tokens into joint-specific features, and an MLP pose head predicts one coarse 3D skeleton per block.
-3. **Refine the poses jointly.** The coarse poses initialize conditional diffusion at inference. A graph-based denoiser uses the joint features, estimated bone lengths, and guidance from a proposed reliability-guided temporal module to refine all poses in the window.
+```bash
+python -m venv .venv
+```
 
-## Planned evaluation
+Activate the environment using `.venv\Scripts\Activate.ps1` in Windows PowerShell
+or `source .venv/bin/activate` on Linux/macOS. Then install dependencies and
+restore the original split manifest.
 
-Compare the diffusion model with deterministic Wi-Fi CSI baselines on MM-Fi using pelvis-aligned MPJPE as the primary metric and PA-MPJPE as a secondary metric. Use P3-S1 for development, P3-S2 for the primary cross-subject evaluation, and P3-S3 for secondary cross-environment evaluation.
+```bash
+python -m pip install -r requirements.txt
+python scripts/restore_manifest.py
+```
+
+CPU execution works with the default installation. For GPU training, install a
+CUDA-enabled PyTorch build suitable for your GPU and driver using the official
+installation selector. Training selects CUDA when available with `--device auto`.
+[PyTorch installation](https://pytorch.org/get-started/locally/)
+
+## Run Phase 1
+
+Place the downloaded dataset under `data/MMFi_Dataset`, with `E01` through `E04`
+inside it, or supply its existing location through `--data`.
+[Dataset setup](data/README.md)
+
+```bash
+python scripts/check_dataset.py --data data/MMFi_Dataset
+python phase1/pretrain_encoder.py --data data/MMFi_Dataset --manifest data/p3-s1.json --output runs/shared_encoder.pt --epochs 30 --batch-size 8
+python phase1/train_baseline.py --data data/MMFi_Dataset --manifest data/p3-s1.json --encoder-checkpoint runs/shared_encoder.pt --output runs/dt_pose --epochs 30 --batch-size 16
+python phase1/train_grc.py --data data/MMFi_Dataset --manifest data/p3-s1.json --encoder-checkpoint runs/shared_encoder.pt --output runs/csi_grc --epochs 30 --batch-size 16
+```
+
+Both pose models freeze the same pretrained encoder. Each saves `best.pt` by
+lowest validation MPJPE and `last.pt` after every completed epoch. Both new files
+include model weights, optimizer and random states. Encoder checkpoints select
+best by pretraining loss. Component guides explain evaluation and continuation.
+
+| Component | Guide |
+| --- | --- |
+| Shared DT-Pose encoder pretraining | [Encoder README](phase1/encoder/README.md) |
+| Full DT-Pose encoder and pose decoder | [DT-Pose README](phase1/dt_pose/README.md) |
+| DT-Pose encoder, CSI GRC and pose head | [Phase 1 GRC README](phase1/csi_grc/README.md) |
+
+The supplied P3-S1 manifest has 232,551 training, 24,057 validation and 64,152
+test frames. Preprocessing, joint order, pelvis centring and splits are shared.
+Evaluation reports MPJPE and PA-MPJPE in millimetres, with lower values better.
+
+The `atlas` branch adds PBS submission and continuation scripts for NUS Atlas.
+[Atlas branch](https://github.com/caipng02/Wi-Fi-CSI-Based-3D-Human-Pose-Estimation-with-Diffusion/tree/atlas)
+
+## Project pipeline and references
+
+The proposed complete system is CSI encoder → joint GRC features and coarse pose
+→ conditional diffusion with skeletal and temporal guidance over N timestamps.
+P3-S1 supports development, with P3-S2 and P3-S3 planned for further evaluation.
+
+This repository contains the native PyTorch architecture ports used for the FYP
+experiment. Source attribution and implementation details are recorded in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
